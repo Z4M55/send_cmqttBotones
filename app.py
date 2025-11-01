@@ -1,3 +1,4 @@
+
 import paho.mqtt.client as paho
 import time
 import streamlit as st
@@ -71,7 +72,3 @@ if st.button('Enviar valor analógico'):
  
 else:
     st.write('')
-
-
-
-
