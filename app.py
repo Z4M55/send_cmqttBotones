@@ -1,77 +1,197 @@
-import paho.mqtt.client as paho
-import time
-import streamlit as st
+# -*- coding: utf-8 -*-
 import json
+import time
+import datetime
 import platform
+import streamlit as st
+import paho.mqtt.client as paho
 
-# Muestra la versión de Python junto con detalles adicionales
-st.write("Versión de Python:", platform.python_version())
+# =============================
+# Configuración de página
+# =============================
+st.set_page_config(
+    page_title="MQTT Control · Tech Mode",
+    page_icon="🛰️",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
 
-values = 0.0
-act1="OFF"
+# =============================
+# Estilos (dark + neón)
+# =============================
+st.markdown("""
+<style>
+  :root{
+    --bg:#0b1220;
+    --panel:#0f182b;
+    --text:#e6f7ff;
+    --muted:#9fb3c8;
+    --accent:#00e5ff;
+    --accent2:#00ffa3;
+    --danger:#ff4d4f;
+  }
+  html, body, .stApp{
+    background: radial-gradient(1000px 600px at 10% 0%, #0f1a30 0%, var(--bg) 60%);
+    color: var(--text) !important;
+  }
+  [data-testid="stSidebar"]{
+    background: linear-gradient(180deg,#0e1628 0%,#091021 100%) !important;
+    border-right: 1px solid rgba(0,229,255,.15);
+  }
+  h1,h2,h3,h4,h5,h6{
+    color: var(--accent);
+    font-family: "JetBrains Mono", monospace;
+    letter-spacing: .4px;
+  }
+  p, label, span, .stMarkdown{
+    color: var(--text) !important;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  .stButton>button{
+    width: 100%;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%) !important;
+    color:#00121a !important;
+    border:none !important;
+    border-radius:12px !important;
+    font-weight:700 !important;
+    box-shadow:0 0 14px rgba(0,229,255,.35);
+    transition: transform .08s ease-in-out, box-shadow .2s ease-in-out;
+  }
+  .stButton>button:hover{ transform: translateY(-1px); box-shadow:0 0 20px rgba(0,229,255,.55); }
+  .btn-danger>button{
+    background: linear-gradient(90deg, #ff6b6b 0%, #ffb199 100%) !important;
+    color:#1a0b0b !important;
+  }
+  .card{
+    background: var(--panel);
+    border:1px solid rgba(0,229,255,.12);
+    border-radius:14px;
+    padding:16px 18px;
+    box-shadow:0 0 24px rgba(0,0,0,.25);
+  }
+  .badge{
+    display:inline-block; padding:4px 10px; border-radius:999px;
+    background: rgba(0,229,255,.12); color: var(--accent);
+    border:1px solid rgba(0,229,255,.35); font-size:12px; margin-left:6px;
+  }
+  .badge.bad{
+    background: rgba(255,77,79,.10); color: #ffb3b4; border:1px solid rgba(255,77,79,.35);
+  }
+  .muted{ color: var(--muted) !important; font-size: 13px; }
+  .metric-card > div > div{
+    background: var(--panel) !important;
+    border:1px solid rgba(0,229,255,.12) !important;
+    border-radius:12px !important;
+  }
+</style>
+""", unsafe_allow_html=True)
 
-def on_publish(client,userdata,result):             #create function for callback
-    print("el dato ha sido publicado \n")
-    pass
+# =============================
+# Estado
+# =============================
+if "last_pub" not in st.session_state:
+    st.session_state.last_pub = None
+if "last_status" not in st.session_state:
+    st.session_state.last_status = "—"
+if "last_payload" not in st.session_state:
+    st.session_state.last_payload = None
 
-def on_message(client, userdata, message):
-    global message_received
-    time.sleep(2)
-    message_received=str(message.payload.decode("utf-8"))
-    st.write(message_received)
+# =============================
+# Función publicar
+# =============================
+def publish_mqtt(broker: str, port: int, client_id: str, topic: str, payload: dict, qos: int = 0, retain: bool = False):
+    """
+    Publica un mensaje MQTT y devuelve (ok: bool, err: str|None)
+    """
+    try:
+        client = paho.Client(client_id=client_id)
+        client.connect(broker, port, 60)
+        result = client.publish(topic, json.dumps(payload), qos=qos, retain=retain)
+        result.wait_for_publish()
+        client.disconnect()
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
-        
+# =============================
+# Sidebar — Config
+# =============================
+with st.sidebar:
+    st.subheader("⚙️ Conexión")
+    broker = st.text_input("Broker", value="157.230.214.127")
+    port = st.number_input("Puerto", value=1883, min_value=1, max_value=65535, step=1)
+    client_id = st.text_input("Client ID", value="GIT-HUB")
+    st.markdown("---")
+    st.subheader("📡 Tópicos")
+    topic_digital = st.text_input("Tópico ON/OFF", value="cmqtt_s")
+    topic_analog = st.text_input("Tópico Analógico", value="cmqtt_a")
+    st.caption("Puedes dejar los valores por defecto o ajustarlos según tu dispositivo.")
 
+# =============================
+# Header
+# =============================
+st.title("🛰️ MQTT Control — Tech Mode")
+st.caption(f"💻 Python: `{platform.python_version()}`  •  Broker: `{broker}`  •  Puerto: `{port}`")
 
-broker="157.230.214.127"
-port=1883
-client1= paho.Client("GIT-HUB")
-client1.on_message = on_message
+st.divider()
 
+# =============================
+# Controles ON/OFF
+# =============================
+st.subheader("🔌 Salida Digital")
+col_on, col_off = st.columns(2, gap="large")
 
+with col_on:
+    if st.button("ON", use_container_width=True):
+        payload = {"Act1": "ON"}
+        ok, err = publish_mqtt(broker, int(port), client_id, topic_digital, payload)
+        st.session_state.last_pub = datetime.datetime.now()
+        st.session_state.last_status = "OK" if ok else f"ERROR: {err}"
+        st.session_state.last_payload = {"topic": topic_digital, "payload": payload}
 
-st.title("MQTT Control")
+with col_off:
+    # botón con estilo de "peligro"
+    if st.container().button("OFF", use_container_width=True, key="off-btn"):
+        payload = {"Act1": "OFF"}
+        ok, err = publish_mqtt(broker, int(port), client_id, topic_digital, payload)
+        st.session_state.last_pub = datetime.datetime.now()
+        st.session_state.last_status = "OK" if ok else f"ERROR: {err}"
+        st.session_state.last_payload = {"topic": topic_digital, "payload": payload}
+# aplicar clase danger al botón OFF (ligero hack visual)
+st.markdown("<script>Array.from(parent.document.querySelectorAll('button[k=off-btn]')).forEach(b=>b.classList.add('btn-danger'));</script>", unsafe_allow_html=True)
 
-if st.button('ON'):
-    act1="ON"
-    client1= paho.Client("GIT-HUB")                           
-    client1.on_publish = on_publish                          
-    client1.connect(broker,port)  
-    message =json.dumps({"Act1":act1})
-    ret= client1.publish("cmqtt_s", message)
- 
-    #client1.subscribe("Sensores")
-    
-    
+# =============================
+# Control analógico
+# =============================
+st.subheader("🎚️ Salida Analógica")
+values = st.slider("Selecciona el valor", 0.0, 100.0, 50.0, 1.0)
+if st.button("📤 Enviar valor analógico", use_container_width=True):
+    payload = {"Analog": float(values)}
+    ok, err = publish_mqtt(broker, int(port), client_id, topic_analog, payload)
+    st.session_state.last_pub = datetime.datetime.now()
+    st.session_state.last_status = "OK" if ok else f"ERROR: {err}"
+    st.session_state.last_payload = {"topic": topic_analog, "payload": payload}
+
+# =============================
+# Estado de publicación
+# =============================
+st.divider()
+st.subheader("📈 Estado de la última publicación")
+if st.session_state.last_pub:
+    ts = st.session_state.last_pub.strftime("%Y-%m-%d %H:%M:%S")
+    ok = st.session_state.last_status == "OK"
+    badge = "<span class='badge'>OK</span>" if ok else f"<span class='badge bad'>{st.session_state.last_status}</span>"
+    st.markdown(f"Resultado: {badge}  ·  <span class='muted'>[{ts}]</span>", unsafe_allow_html=True)
+
+    with st.expander("🧾 Ver payload"):
+        st.json(st.session_state.last_payload or {})
 else:
-    st.write('')
+    st.info("Aún no has enviado comandos. Usa los botones **ON/OFF** o **Enviar valor analógico**.")
 
-if st.button('OFF'):
-    act1="OFF"
-    client1= paho.Client("GIT-HUB")                           
-    client1.on_publish = on_publish                          
-    client1.connect(broker,port)  
-    message =json.dumps({"Act1":act1})
-    ret= client1.publish("cmqtt_s", message)
-  
-    
-else:
-    st.write('')
-
-values = st.slider('Selecciona el rango de valores',0.0, 100.0)
-st.write('Values:', values)
-
-if st.button('Enviar valor analógico'):
-    client1= paho.Client("GIT-HUB")                           
-    client1.on_publish = on_publish                          
-    client1.connect(broker,port)   
-    message =json.dumps({"Analog": float(values)})
-    ret= client1.publish("cmqtt_a", message)
-    
- 
-else:
-    st.write('')
-
-
-
-
+# =============================
+# Nota
+# =============================
+st.markdown(
+    "<p class='muted'>Consejo: si no ves efecto, verifica que tu dispositivo esté suscrito a los tópicos y alcance el broker.</p>",
+    unsafe_allow_html=True
+)
